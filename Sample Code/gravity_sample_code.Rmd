@@ -1,0 +1,259 @@
+---
+author: "Eric Hsienchen Chu"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      error = TRUE, fig.align="center", fig.height = 5, fig.width = 8)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+#library(plm)       # Panel data analysis library
+#library(car)       # Companion to applied regression 
+#library(tseries)   # For timeseries analysis
+#library(lmtest)    # For hetoroskedasticity analysis
+#library(directlabels)
+#library(ggrepel)
+#library(ggtext)
+#library(gganimate)
+#library(gifski)
+#library(kableExtra)
+#library(ggpubr)
+#library(rddtools)
+#library(magrittr)
+#library(maps)
+#library(mapdata)
+library(broom)  # Convert models to data frames
+#library(rdrobust)  # For robust nonparametric regression discontinuity
+#library(estimatr)  # Run 2SLS models in one step with iv_robust()
+#library(ivreg)
+#library(ivmodel)
+library(gtools)
+
+library(sna)
+library(igraph)
+library(threejs)
+
+
+library(sna)
+library(igraph)
+library(threejs)
+
+library(data.table)
+library(dplyr)
+library(readstata13)
+
+
+#source("../viridis.R")
+```
+
+## [ECON664: Gravity Models] 
+
+#### Author: Eric Hsienchen Chu
+
+#### Date: September 27, 2023
+
+
+- - -
+
+#### Part I. Data Cleaning
+
+```{r}
+## At the top of the file, always include rm(list = ls()) to clear memory. 
+rm(list = ls())
+```
+
+```{r} 
+## Read in the data. Since this is a .dta file, we use the read.dta13
+## command. If this were a .csv or .excel file, you would use fread,
+## read.table, or one of the read excel packages. 
+
+## Check working directory
+data <- read.dta13("../ECON 664/data_exercise_class/data/class_gravity1.dta")
+```
+
+
+```{r}
+## head(data) shows you what the top of the data frame looks like. 
+head(data)
+```
+
+
+```{r}
+## Create Variables for "Strict" version of the gravity regression. 
+data = data %>% mutate(
+                     lvalue  = log(value),
+                     lgdp_od = log(gdp_o*gdp_d),
+                     ldistw  = log(distw),
+                     lgdp_o  = log(gdp_o),
+                     lgdp_d  = log(gdp_d)
+                 ) 
+
+data = data %>% mutate(lindex = lgdp_od - ldistw)
+```
+
+
+
+```{r}
+## Plot the data in 1950 to see what it looks like
+data_1950 = data %>% filter(year == 1950)
+
+pdf('index_scatter_1950.pdf', height = 5, width = 5)
+plot(data_1950$lindex, data_1950$lvalue, 
+     col = 'blue', 
+     ylim = c(3,15), 
+     pch = 20, 
+     xlim = c(15,35),
+     xlab = 'Gravity Index', 
+     ylab = 'Log Export Value (Origin to Destination)')
+text(data_1950$lindex, data_1950$lvalue-1, labels=data_1950$iso_od, cex = 0.3)
+dev.off()
+```
+
+
+- - - 
+
+#### Part II. Gravity Model Regressions
+
+#### Regression 1 (Strict Gravity)
+
+
+```{r}
+###################################
+## Regression 1 (Strict Gravity) ##
+###################################
+
+strict_gravity_reg = lm(lvalue~lindex, data = data %>% filter(year == 1950))
+
+## summary(reg) will print out the regression table
+summary(strict_gravity_reg)
+
+tidy(strict_gravity_reg) %>% 
+  mutate(sig = stars.pval(p.value))
+```
+
+
+#### Regression 2 (General Gravity)
+
+
+```{r}
+####################################
+## Regression 2 (General Gravity) ##
+####################################
+
+general_gravity_reg = lm(lvalue~lgdp_o + lgdp_d + ldistw, data = data %>% filter(year == 1950))
+
+general_gravity_estimates = data.frame(summary(general_gravity_reg)$coefficients)
+
+general_gravity_estimates
+```
+
+`Note.` the coeff estimates of lgdp_o is 0.6726462
+
+> Interpretation: Holding other variables constant, in the year 1950, a 1% increase in origin's GDP raises bilateral trade by 0.67%. 
+
+```{r}
+general_gravity_reg_2019 = lm(lvalue~lgdp_o + lgdp_d + ldistw, data = data %>% filter(year == 2019))
+
+general_gravity_estimates_2019 = data.frame(summary(general_gravity_reg_2019)$coefficients)
+
+general_gravity_estimates_2019
+```
+
+> If we run the general gravity on 2019 data, we observe that the signs are very stable.
+
+- - -
+
+#### Part III. Has the world gotten flatter?
+
+> Does "distance" matter LESS? We can examine how the distance coefficient has changed over time!
+
+```{r}
+##################################
+## Has the world gotten flatter?##
+##################################
+
+## Create variable stripping market size effects out of trade flows (controling for market size)
+## First, we have to get coefficients from the last regression
+
+b_cons   = general_gravity_estimates$Estimate[rownames(general_gravity_estimates)=='(Intercept)']
+b_lgdp_o = general_gravity_estimates$Estimate[rownames(general_gravity_estimates)=='lgdp_o']
+b_lgdp_d = general_gravity_estimates$Estimate[rownames(general_gravity_estimates)=='lgdp_d']
+b_ldistw = general_gravity_estimates$Estimate[rownames(general_gravity_estimates)=='ldistw']
+
+## Now, we'll use these to create the new variable, lvalue_hat
+data <- data %>% mutate(lvalue_hat = lvalue - (b_cons + b_lgdp_o*lgdp_o + b_lgdp_d*lgdp_d))
+```
+
+
+
+```{r}
+## If we run a regression of lvalue_hat on ldsitw in 1950, we should get the same coefficient as before
+## It looks good. 
+lm(lvalue_hat~ldistw, data = data %>% filter(year == 1950))
+```
+
+
+```{r}
+## Now, we'll write a loop to run this regression in each year.
+
+ylist <- c(1950,1960,1970,1980,1990,2000,2010,2019)
+coeff <- data.frame() ## Here, I initialized an empty data frame to collect the coefficients.
+
+for (yy in ylist) {
+
+    reg  = lm(lvalue_hat~ldistw, data = data %>% filter(year == yy))
+    reg  = data.frame(summary(reg)$coefficients)
+
+    temp = data.frame(
+        year = yy,
+        beta = reg$Estimate[rownames(reg)=='ldistw'],
+        se   = reg$Std..Error[rownames(reg)=='ldistw'])
+                   
+    coeff = rbind(coeff, temp)
+}
+```
+
+
+```{r}
+## This is some code to make a plot of these coefficients
+
+## First, we can calculate the 95 percent confidence intervals
+coeff = coeff %>% mutate(                       
+                       lower95 = (beta - se*qnorm(1-(1-.95)/2)),
+                       upper95 = (beta + se*qnorm(1-(1-.95)/2))
+                   )
+
+pdf(paste0('distance_coeff_over_time.pdf'), height = 5, width = 5)
+plot(coeff$year, coeff$beta, pch = 17, ylim = c(-1.5,-0.4), col = 'steelblue', xlab = 'Year', ylab = 'Coefficient on Log Distance')
+arrows(x0=coeff$year, y0=coeff$lower95, x1 = coeff$year, y1 = coeff$upper95, code = 3, angle=90, length=0.05, col = 'gray')
+points(coeff$year, coeff$beta, pch = 17, col = 'steelblue')
+```
+
+> So, does the world get "flatter"? NO! (the coeff on log-distance is increasing in absolute value (more negative))
+
+> Consider f(x,t) = 0 and f(x, t') = the curve of the plot, then f(x, t')-f(x, t) ≥ 0 -> supermodular.
+
+
+```{r}
+#dev.off()
+```
+
+> Takeawys: Trade flows respond *positively* to market size. Trade flows respond *negatively* to distance. The relationship is incredibly stable and is one of the most robust empirical results in (international trade) economics. 
+
+---
+
+**Eric Hsienchen Chu**
+
+UW-Madison Economics
+
+
+
+
+
