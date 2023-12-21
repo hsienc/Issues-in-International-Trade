@@ -1,0 +1,458 @@
+---
+author: "Eric Hsienchen Chu"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      error = TRUE, fig.align="center", fig.height = 5, fig.width = 8)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(kableExtra)
+library(broom)
+library(gtools)
+library(plm)
+library(ggpubr)
+library(estimatr) 
+library(magrittr)
+library(texreg)
+library(xtable)
+library(stargazer)
+library(data.table)
+library(dplyr)
+library(readstata13)
+```
+
+## ECON664: Codes for Export and Policy Suggestion for the Netherlands 
+
+#### Author: Eric Hsienchen Chu
+
+#### Last revised: December 20, 2023
+
+- - -
+
+### Data Importation
+
+```{r, echo = F}
+## At the top of the file, always include rm(list = ls()) to clear memory. 
+rm(list = ls())
+```
+
+```{r} 
+## Warning: check working directory FIRST
+pwt = read.dta13("../Econ664_Final_Assignment/data/final-pwt.dta")
+industry_flow = read.dta13("../Econ664_Final_Assignment/data/final-industryflows.dta")
+gravity = read.dta13("../Econ664_Final_Assignment/data/final-gravity.dta")
+```
+
+#### Data Structures
+
+For **pwt** data:
+
+- `countrycode`: 3-letter ISO country code
+
+- `rgdpo`: Output-side real GDP at chained PPPs (in mil. 2017US$)
+
+- `pop`: population (in mil)
+
+- `hc`: human capital index
+
+- `cn`: Capital stock at current PPPs (in mil. 2017US$)
+
+For **industry_flow** data:
+
+- `value`: iso's exports, $ million
+
+- `value_wd`: global exports, $ million
+
+For **gravity** data:
+
+- variable definitions follow the [PSET2](https://github.com/hsienc/Issues-in-International-Trade/blob/f021dbe80f3bd911e7f0aba721a97488a3a78642/ECON664_ps2.pdf)
+
+- - - 
+
+#### SECTION 1: RECENT ECONOMIC PERFORMANCE OF THE NETHERLANDS
+
+To summarize the Netherlands (NLD) econ growth, I use `pwt` data to showcase the output-side real GDP (in mils 2017US\$). The summary of the Dutch's economy is twofold. I first compare the Netherlands against all EU & Central Asia, which yields an aggregate level of regional economy overview. The second comparison goes by putting the Netherlands against the EU members, which highlights the within-group comparison.
+
+(Note: The EU member list is retrieved at [The Country Profiles](https://european-union.europa.eu/principles-countries-history/country-profiles_en), with 27 countries listed by December 11, 2023.)
+
+```{r}
+
+EU_members = c("AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC", "HUN","IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK", "SVN", "ESP", "SWE")
+#NLD_neighbors = c("BEL", "DEU")
+yr_period = seq(1980, 2019, by = 1)
+
+# Check: country codes specifications 
+stopifnot(length(EU_members) == 27)
+stopifnot(all(EU_members %in% pwt$countrycode))
+#stopifnot(all(NLD_neighbors %in% pwt$countrycode))
+```
+
+
+```{r}
+fig1a_tab = pwt %>%
+  select(countrycode, year, rgdpo, region) %>% 
+  filter(year %in% yr_period, region == "Europe & Central Asia") %>% 
+  group_by(year) %>% 
+  mutate(group_rgdpo_25th = quantile(rgdpo, 0.25, na.rm = T),
+         group_rgdpo_median = quantile(rgdpo, 0.5, na.rm = T),
+         group_rgdpo_75th = quantile(rgdpo, 0.75, na.rm = T)) %>% 
+  ungroup() %>%  
+  summarise(year = year,
+            country = countrycode,
+            rgdpo = rgdpo,
+            group_rgdpo_25th = group_rgdpo_25th,
+            group_rgdpo_median = group_rgdpo_median,
+            group_rgdpo_75th = group_rgdpo_75th 
+            )
+
+fig1a_tab
+```
+
+#### Figure 1a. The Dutch's Output-side real GDP against Europe & Central Asia (25-75th) 
+
+```{r, echo = F}
+break_years = c(seq(min(fig1a_tab$year), max(fig1a_tab$year), by = 5), 2019)
+
+fig1a = ggplot(fig1a_tab, aes(x=year, y=rgdpo, group = country))+
+  #geom_line(data = fig1a_tab, color = "grey75", size = .6, alpha = .5)+
+  # the Netherlands
+  geom_line(data = fig1a_tab %>% filter(country == "NLD" ), 
+            aes(color = country), size = 1)+
+  geom_point(data = fig1a_tab %>% filter(country == "NLD"), size = 1,  aes(color = country))+
+  # the 25th, median, and 75th
+  geom_line(data = fig1a_tab, aes(x=year, y=fig1a_tab$group_rgdpo_25th, color = "25th"), size = 1, linetype = "dotted")+
+  geom_line(data = fig1a_tab, aes(x=year, y=fig1a_tab$group_rgdpo_median, color = "50th"), size = 1, linetype = "dotted")+
+  geom_line(data = fig1a_tab, aes(x=year, y=fig1a_tab$group_rgdpo_75th, color = "75th"), size = 1, linetype = "dotted")+
+  scale_x_continuous(breaks = break_years, labels = break_years)+
+  xlab("")+
+  ylab("Output-side real GDP (in mil. 2017US$)")+
+  #ggtitle("Figure 1a. The Dutch's Output-side real GDP against Europe & Central Asia",
+  #        subtitle = "Period: 1990 - 2019; n = 48")+
+  theme_classic(10)+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title = element_text(size = 13))+
+  theme(legend.position = "bottom", legend.direction = "horizontal")+
+  scale_color_manual(values = c("black", "blue", "black", "darkorange"), name = "Countries") +
+  scale_linetype_manual(values = c("dotted", "dotted", "dotted", "solid"), name = "Group Linetype") +
+  guides(#color = guide_legend(title = "Custom Color Legend", override.aes = list(size = 4)),
+         linetype = guide_legend(title = "Custom Linetype Legend", override.aes = list(size = 4)))
+
+fig1a
+
+# uncomment to save the plot 
+# ggsave("Figure1a.png", plot = fig1a, width = 8, height = 5, unit = "in", dpi = 700)
+```
+
+
+
+```{r}
+fig1b_tab = pwt %>%
+  select(countrycode, year, rgdpo, region) %>% 
+  filter(year %in% yr_period, countrycode %in% EU_members) %>% 
+  group_by(year) %>% 
+  mutate(group_rgdpo_25th = quantile(rgdpo, 0.25, na.rm = T),
+         group_rgdpo_median = quantile(rgdpo, 0.5, na.rm = T),
+         group_rgdpo_75th = quantile(rgdpo, 0.75, na.rm = T)) %>% 
+  ungroup() %>% 
+  summarise(year = year,
+            country = countrycode,
+            rgdpo = rgdpo,
+            group_rgdpo_25th = group_rgdpo_25th,
+            group_rgdpo_median = group_rgdpo_median,
+            group_rgdpo_75th = group_rgdpo_75th 
+            )
+
+fig1b_tab
+```
+
+#### Figure 1b. The Dutch's Output-side real GDP against EU members
+
+
+```{r, echo = F}
+break_years = c(seq(min(fig1b_tab$year), max(fig1b_tab$year), by = 5), 2019)
+
+fig1b = ggplot(fig1b_tab, aes(x=year, y=rgdpo, group = country))+
+  geom_line(data = fig1b_tab, color = "grey75", size = .6, alpha = .5)+
+  # the Netherlands
+  geom_line(data = fig1b_tab %>% filter(country == "NLD" ), 
+            aes(color = country), size = 1)+
+  geom_point(data = fig1b_tab %>% filter(country == "NLD"), size = 1,  aes(color = country))+
+  # the 25th, median, and 75th
+  geom_line(data = fig1b_tab, aes(x=year, y=fig1b_tab$group_rgdpo_25th, color = "25th"), size = 0.6, linetype = "dotted")+
+  geom_line(data = fig1b_tab, aes(x=year, y=fig1b_tab$group_rgdpo_median, color = "50th"), size = 0.6, linetype = "dotted")+
+  geom_line(data = fig1b_tab, aes(x=year, y=fig1b_tab$group_rgdpo_75th, color = "75th"), size = 0.6, linetype = "dotted")+
+  scale_x_continuous(breaks = break_years, labels = break_years)+
+  xlab("")+
+  ylab("Output-side real GDP (in mil. 2017US$)")+
+  #ggtitle("Figure 1b. The Dutch's Output-side real GDP against EU members",
+  #        subtitle = "Period: 1990 - 2019; n = 27")+
+  theme_classic(10)+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title = element_text(size = 13))+
+  theme(legend.position = "bottom", legend.direction = "horizontal")+
+  scale_color_manual(values = c("black", "blue", "black", "darkorange"), name = "Countries") +
+  scale_linetype_manual(values = c("dotted", "dotted", "dotted", "solid"), name = "Group Linetype") +
+  guides(#color = guide_legend(title = "Custom Color Legend", override.aes = list(size = 4)),
+         linetype = guide_legend(title = "Custom Linetype Legend", override.aes = list(size = 4)))
+
+fig1b
+
+# uncomment to save the plot 
+# ggsave("Figure1b.png", plot = fig1b, width = 8, height = 5, unit = "in", dpi = 700)
+```
+
+- - - 
+
+#### SECTION 2: EXPLORATION OF THE NETHERLANDS EXPORT PATTERNS
+
+```{r}
+NLD_industry_flow = industry_flow %>% 
+  filter(iso_o == "NLD", year <= 2021) # 2022 has missing values over almost all countries
+
+
+head(NLD_industry_flow)
+```
+```{r}
+# calculate growth rate recursively 
+period = seq(min(NLD_industry_flow$year), max(NLD_industry_flow$year), by = 1)
+
+temp = pwt %>%
+  filter(year %in% period, countrycode == "NLD") %>% 
+  select(year, rgdpo) %>%
+  group_by(year) 
+```
+
+
+
+```{r}
+# overall export growth 
+fig2_NLD_export_growth = NLD_industry_flow %>% 
+  group_by(year) %>% 
+  summarise(total_export = sum(value)) %>% 
+  mutate(diff_growth = total_export - lag(total_export), # Difference in total_export between years
+         growth_rate = ( diff_growth / (year - lag(year)) )/lag(total_export)*100,
+         log_diff_rate = (log(total_export) - log(lag(total_export)))*100 ) 
+
+fig2_NLD_export_growth = fig2_NLD_export_growth %>% 
+  left_join(temp, by = "year") %>% 
+  mutate(export_share_rgdp = total_export/rgdpo*100)
+
+fig2_NLD_export_growth
+```
+
+#### Figure 2. Export Profile: 1995-2021
+
+```{r, echo = F}
+# reset our break_years
+break_years = c(seq(min(fig2_NLD_export_growth$year), max(fig2_NLD_export_growth$year), by = 5), 2019, 2021)    
+
+fig2 = ggplot(fig2_NLD_export_growth, aes(x=year, y=growth_rate))+
+  #Netherlands 
+  geom_line(data = fig2_NLD_export_growth, size = 1, aes(color = "Export Growth Rate (left)"))+
+  geom_point(data = fig2_NLD_export_growth, aes(color = "Export Growth Rate (left)"))+
+  geom_line(data = fig2_NLD_export_growth, size = 1, aes(x = year, y = export_share_rgdp, color = "Export share, % of rGDP (right)"), alpha = 0.6)+
+  scale_x_continuous(breaks = break_years, labels = break_years)+
+  scale_y_continuous(
+    name = "Growth rate (%)",
+    sec.axis = sec_axis(~., name = "Share of rGDP (%)")
+  ) +
+  geom_vline(xintercept = 2019, color = "grey75", linetype = "dashed", size = 0.6)+
+  geom_vline(xintercept = 2008, color = "grey75", linetype = "dashed", size = 0.6)+
+  xlab("")+
+  #ylab("Export growth rate(%)")+
+  theme_classic(10)+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        axis.title = element_text(size = 13))+
+  theme(legend.position = "bottom", legend.direction = "horizontal")+
+  scale_color_manual(values = c("darkorange", "blue"), name = "") +
+  #scale_linetype_manual(values = c("solid", "solid"), name = "Group Linetype") +
+  guides(#color = guide_legend(title = "Custom Color Legend", override.aes = list(size = 4)),
+         linetype = guide_legend(title = "Custom Linetype Legend", override.aes = list(size = 4)))
+fig2
+
+# uncomment to save the plot 
+# ggsave("Figure2.png", plot = fig2, width = 8, height = 5, unit = "in", dpi = 700)
+```
+
+The `Revealed Comparative Advantage (RCA)` index is calculated as:
+
+$$
+RCA^i_k = \frac{X^i_k/X^i}{X_k/X} = \frac{X^i_k/\sum_k X^i_k}{\sum_i X^i_k / \sum_i\sum_k X^i_k}
+$$
+where $X^i_k$ is country $i$’s exports in industry $k$, $X^i$ is country $i$’s total exports, $X_k$ is world exports of sector $k$, and $X$ is total world exports.
+
+
+```{r}
+#RCA comparison: what are the most "competitive" industry for the Dutch's export  
+
+RCA_2015 = NLD_industry_flow %>% 
+  filter(year == 2015) %>% 
+  mutate(RCA_2015 = (value / sum(value))/(value_wd/sum(value_wd)) ) %>% 
+  select(iso_o, hs2, RCA_2015)
+
+RCA_2016 = NLD_industry_flow %>% 
+  filter(year == 2016) %>% 
+  mutate(RCA_2016 = (value / sum(value))/(value_wd/sum(value_wd)) ) %>% 
+  select(iso_o, hs2, RCA_2016)
+
+
+RCA_2017 = NLD_industry_flow %>% 
+  filter(year == 2017) %>% 
+  mutate(RCA_2017 = (value / sum(value))/(value_wd/sum(value_wd)) ) %>% 
+  select(iso_o, hs2, RCA_2017)
+
+RCA_2018 = NLD_industry_flow %>% 
+  filter(year == 2018) %>% 
+  mutate(RCA_2018 = (value / sum(value))/(value_wd/sum(value_wd)) ) %>% 
+  select(iso_o, hs2, RCA_2018)
+
+RCA_2019 = NLD_industry_flow %>% 
+  filter(year == 2019) %>% 
+  mutate(RCA_2019 = (value / sum(value))/(value_wd/sum(value_wd)) ) %>% 
+  select(iso_o, hs2, RCA_2019)
+
+RCA_comparison = RCA_2015 %>% 
+  inner_join(RCA_2016, by = c("iso_o", "hs2")) %>% 
+  inner_join(RCA_2017, by = c("iso_o", "hs2")) %>% 
+  inner_join(RCA_2018, by = c("iso_o", "hs2")) %>% 
+  inner_join(RCA_2019, by = c("iso_o", "hs2")) %>% 
+  mutate(Five_yr_avg_RCA = round( ((RCA_2015 + RCA_2016 + RCA_2017 + RCA_2018 + RCA_2019)/5), 2)) %>% 
+  arrange(-Five_yr_avg_RCA)
+
+RCA_comparison %>% 
+  select(-iso_o) %>% 
+  slice_max(Five_yr_avg_RCA, n=10, with_ties = T)
+```
+
+```{r}
+# extra exercises
+# compund annunal growth rate
+NLD_industry_flow %>% 
+  filter(year == 2019 | year == 2015) %>% 
+  group_by(hs2) %>% 
+  summarise(year = year, 
+            value = value,
+            CAGR_growth = round(((value[year == 2019]/value[year == 2015])^(1/(2019-2015+1)) - 1)*100, 2) )
+```
+
+```{r}
+# what are the top export industry (total value, not RCA)
+
+top_export_2015 = NLD_industry_flow %>% 
+  filter(year == 2015) %>% 
+  rename(export_value_2015 = value) %>% 
+  select(iso_o, hs2, export_value_2015)
+
+top_export_2016 = NLD_industry_flow %>% 
+  filter(year == 2016) %>% 
+  rename(export_value_2016 = value) %>% 
+  select(iso_o, hs2, export_value_2016)
+
+top_export_2017 = NLD_industry_flow %>% 
+  filter(year == 2017) %>% 
+  rename(export_value_2017 = value) %>% 
+  select(iso_o, hs2, export_value_2017)
+
+top_export_2018 = NLD_industry_flow %>% 
+  filter(year == 2018) %>% 
+  rename(export_value_2018 = value) %>% 
+  select(iso_o, hs2, export_value_2018)
+
+top_export_2019 = NLD_industry_flow %>% 
+  filter(year == 2019) %>% 
+  rename(export_value_2019 = value) %>% 
+  select(iso_o, hs2, export_value_2019)
+
+Top_export_comparison = top_export_2015 %>% 
+  inner_join(top_export_2016, by = c("iso_o", "hs2")) %>% 
+  inner_join(top_export_2017, by = c("iso_o", "hs2")) %>% 
+  inner_join(top_export_2018, by = c("iso_o", "hs2")) %>% 
+  inner_join(top_export_2019, by = c("iso_o", "hs2")) %>% 
+  mutate(Five_yr_avg_report = round( ((export_value_2015 + export_value_2016 + export_value_2017 + export_value_2018 + export_value_2019)/5), 2)) %>% 
+  arrange(-Five_yr_avg_report)
+
+Top_export_comparison %>% 
+  select(-iso_o) %>% 
+  slice_max(Five_yr_avg_report, n=3, with_ties = T) %>% 
+  relocate(hs2, Five_yr_avg_report)
+```
+
+
+
+- - - 
+
+#### SECTION 3: GRAVITY ANALYSIS ON BARRIERS IN BILATERAL TRADE
+
+```{r}
+# get NLD data
+
+gravity_NLD = gravity %>% 
+  filter(iso_o == "NLD")
+
+# take log for regression
+gravity_NLD = gravity_NLD %>% 
+  mutate(lvalue = log(value),
+         lgdp_od = log(gdp_o*gdp_d),
+         ldistw = log(distw),
+         lgdp_o  = log(gdp_o),
+         lgdp_d  = log(gdp_d),
+         # variables of interest
+         lscaled_sci_2021 = log(scaled_sci_2021),
+         lcomrelig = log(comrelig)) 
+```
+
+```{r}
+# Baseline
+
+reg_baseline = lm(lvalue ~ lgdp_o + lgdp_d + ldistw - 1,  data = gravity_NLD)
+#texreg(reg_baseline, include.ci = FALSE)
+
+tidy(reg_baseline) %>% 
+    mutate(sig = stars.pval(p.value))
+
+
+```
+
+```{r}
+# cultural
+reg_2 = lm(lvalue ~ lgdp_o + lgdp_d + ldistw + comlang_ethno + contig -1, data = gravity_NLD)
+#texreg(reg_2, include.ci = FALSE)
+tidy(reg_2) %>% 
+    mutate(sig = stars.pval(p.value))
+
+```
+
+
+```{r}
+# political
+reg_3 = lm(lvalue ~ lgdp_o + lgdp_d + ldistw + comleg_posttrans + rta -1, data = gravity_NLD)
+#texreg(reg_3, include.ci = FALSE)
+tidy(reg_3) %>% 
+    mutate(sig = stars.pval(p.value))
+
+```
+
+
+```{r}
+reg_4 = lm(lvalue ~ lgdp_o + lgdp_d + ldistw + comlang_ethno + contig + comleg_posttrans + rta -1, data = gravity_NLD)
+#texreg(reg4, include.ci = FALSE)
+tidy(reg_4) %>% 
+    mutate(sig = stars.pval(p.value))
+
+```
+
+
+
+
+
+
+
+
